@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 import { ASN1Obj } from "../asn1";
-import * as crypto from "../crypto";
+import { bufferEqual, verifySignature } from "../crypto";
+import { toArrayBuffer } from "../encoding";
 import { ECDSA_SIGNATURE_ALGOS, SHA2_HASH_ALGOS } from "../oid";
 import { RFC3161TimestampVerificationError } from "./error";
 import { TSTInfo } from "./tstinfo";
@@ -107,13 +108,13 @@ export class RFC3161Timestamp {
 
   private async verifyMessageDigest(): Promise<void> {
     // Check that the tstInfo matches the signed data
-    const tstInfoDigest = await crypto.digest(
+    const tstInfoDigest = await crypto.subtle.digest(
       this.signerDigestAlgorithm,
-      this.tstInfo.raw,
+      toArrayBuffer(this.tstInfo.raw),
     );
     const expectedDigest = this.messageDigestAttributeObj.subs[1].subs[0].value;
 
-    if (!crypto.bufferEqual(tstInfoDigest, expectedDigest)) {
+    if (!bufferEqual(new Uint8Array(tstInfoDigest), expectedDigest)) {
       throw new RFC3161TimestampVerificationError(
         "signed data does not match tstInfo",
       );
@@ -126,9 +127,9 @@ export class RFC3161Timestamp {
     signedAttrs[0] = 0x31; // Change context-specific tag to SET
 
     // Check that the signature is valid for the signed attributes
-    const verified = await crypto.verify(
-      signedAttrs,
+    const verified = await verifySignature(
       key,
+      signedAttrs,
       this.signatureValue,
       this.signatureAlgorithm,
     );

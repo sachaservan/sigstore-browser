@@ -292,20 +292,3 @@ export function bufferEqual(a: Uint8Array, b: Uint8Array): boolean {
   }
   return true;
 }
-
-export async function digest(
-  algorithm: string,
-  data: Uint8Array,
-): Promise<Uint8Array> {
-  const result = await crypto.subtle.digest(algorithm, toArrayBuffer(data));
-  return new Uint8Array(result);
-}
-
-export async function verify(
-  data: Uint8Array,
-  key: CryptoKey,
-  signature: Uint8Array,
-  hash: string,
-): Promise<boolean> {
-  return verifySignature(key, data, signature, hash);
-}

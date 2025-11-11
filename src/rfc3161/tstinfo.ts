@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 import { ASN1Obj } from "../asn1";
-import * as crypto from "../crypto";
+import { bufferEqual } from "../crypto";
+import { toArrayBuffer } from "../encoding";
 import { SHA2_HASH_ALGOS } from "../oid";
 import { RFC3161TimestampVerificationError } from "./error";
 
@@ -47,8 +48,8 @@ export class TSTInfo {
   }
 
   public async verify(data: Uint8Array): Promise<void> {
-    const digest = await crypto.digest(this.messageImprintHashAlgorithm, data);
-    if (!crypto.bufferEqual(digest, this.messageImprintHashedMessage)) {
+    const digest = await crypto.subtle.digest(this.messageImprintHashAlgorithm, toArrayBuffer(data));
+    if (!bufferEqual(new Uint8Array(digest), this.messageImprintHashedMessage)) {
       throw new RFC3161TimestampVerificationError(
         "message imprint does not match artifact",
       );
