@@ -13,12 +13,12 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-import { ASN1Obj } from "../asn1";
-import { bufferEqual, importKey, verifySignature } from "../crypto";
-import { Uint8ArrayToBase64 } from "../encoding";
-import { KeyTypes } from "../interfaces";
-import { ECDSA_CURVE_NAMES, ECDSA_SIGNATURE_ALGOS } from "../oid";
-import * as pem from "../pem";
+import { ASN1Obj } from "../asn1/index.js";
+import { bufferEqual, importKey, verifySignature } from "../crypto.js";
+import { Uint8ArrayToBase64 } from "../encoding.js";
+import { KeyTypes } from "../interfaces.js";
+import { ECDSA_CURVE_NAMES, ECDSA_SIGNATURE_ALGOS } from "../oid.js";
+import * as pem from "../pem.js";
 import {
   X509AuthorityKeyIDExtension,
   X509BasicConstraintsExtension,

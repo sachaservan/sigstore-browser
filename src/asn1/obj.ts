@@ -13,10 +13,10 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-import { toArrayBuffer } from "../encoding";
-import { ByteStream } from "../stream";
-import { ASN1ParseError, ASN1TypeError } from "./error";
-import { decodeLength, encodeLength } from "./length";
+import { toArrayBuffer } from "../encoding.js";
+import { ByteStream } from "../stream.js";
+import { ASN1ParseError, ASN1TypeError } from "./error.js";
+import { decodeLength, encodeLength } from "./length.js";
 import {
   parseBitString,
   parseBoolean,
