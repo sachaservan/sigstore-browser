@@ -13,6 +13,28 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+export function toArrayBuffer(view: ArrayBufferView): ArrayBuffer {
+  const { byteLength } = view;
+
+  if (byteLength === 0) {
+    return new ArrayBuffer(0);
+  }
+
+  const { buffer, byteOffset } = view;
+
+  if (
+    buffer instanceof ArrayBuffer &&
+    byteOffset === 0 &&
+    byteLength === buffer.byteLength
+  ) {
+    return buffer;
+  }
+
+  const clone = new Uint8Array(byteLength);
+  clone.set(new Uint8Array(buffer, byteOffset, byteLength));
+  return clone.buffer;
+}
+
 export function base64ToUint8Array(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const length = binaryString.length;

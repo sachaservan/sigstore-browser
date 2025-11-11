@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+import { toArrayBuffer } from "../encoding";
 import { ByteStream } from "../stream";
 import { ASN1ParseError, ASN1TypeError } from "./error";
 import { decodeLength, encodeLength } from "./length";
@@ -38,7 +39,7 @@ export class ASN1Obj {
 
   // Constructs an ASN.1 object from a Buffer of DER-encoded bytes.
   public static parseBuffer(buf: Uint8Array): ASN1Obj {
-    return parseStream(new ByteStream(buf));
+    return parseStream(new ByteStream(toArrayBuffer(buf)));
   }
 
   public toDER(): Uint8Array {

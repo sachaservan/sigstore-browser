@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 import { verifySignature } from "../crypto";
-import { readBigInt64BE } from "../encoding";
+import { readBigInt64BE, toArrayBuffer } from "../encoding";
 import { ByteStream } from "../stream";
 
 interface SCTOptions {
@@ -111,7 +111,7 @@ export class SignedCertificateTimestamp {
   // https://www.rfc-editor.org/rfc/rfc6962#section-3.2
   // https://www.rfc-editor.org/rfc/rfc5246#section-7.4.1.4.1
   public static parse(buf: Uint8Array): SignedCertificateTimestamp {
-    const stream = new ByteStream(buf);
+    const stream = new ByteStream(toArrayBuffer(buf));
 
     // Version - enum { v1(0), (255) }
     const version = stream.getUint8();

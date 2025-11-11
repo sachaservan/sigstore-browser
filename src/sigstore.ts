@@ -4,6 +4,7 @@ import { importKey, verifySignature } from "./crypto";
 import {
   base64ToUint8Array,
   stringToUint8Array,
+  toArrayBuffer,
   Uint8ArrayToHex,
   Uint8ArrayToString,
 } from "./encoding";
@@ -149,7 +150,7 @@ export class SigstoreVerifier {
 
     // Calculate hash of the issuer's public key
     const issuerId = new Uint8Array(
-      await crypto.subtle.digest("SHA-256", issuer.publicKey),
+      await crypto.subtle.digest("SHA-256", toArrayBuffer(issuer.publicKey)),
     );
     preCert.appendView(issuerId);
 

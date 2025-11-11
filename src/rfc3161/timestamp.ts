@@ -78,7 +78,7 @@ export class RFC3161Timestamp {
     return new TSTInfo(this.eContentObj.subs[0].subs[0]);
   }
 
-  public async verify(data: Uint8Array, publicKey: CryptoKey): void {
+  public async verify(data: Uint8Array, publicKey: CryptoKey): Promise<void> {
     if (!this.timeStampTokenObj) {
       throw new RFC3161TimestampVerificationError("timeStampToken is missing");
     }

@@ -4,6 +4,7 @@ import {
   base64ToUint8Array,
   hexToUint8Array,
   stringToUint8Array,
+  toArrayBuffer,
   Uint8ArrayToHex,
 } from "./encoding";
 import {
@@ -42,12 +43,10 @@ export async function loadKeys(
     /* A KEYID, which MUST be correct for the specified KEY. Clients MUST calculate each KEYID to verify this is correct for the associated key. Clients MUST ensure that for any KEYID represented in this key list and in other files, only one unique key has that KEYID. */
     /* https://github.com/sigstore/root-signing/issues/1387 */
     const key = keys[keyId];
+    const canonicalKey = stringToUint8Array(canonicalize(key));
     const verified_keyId = Uint8ArrayToHex(
       new Uint8Array(
-        await crypto.subtle.digest(
-          "SHA-256",
-          stringToUint8Array(canonicalize(key)),
-        ),
+        await crypto.subtle.digest("SHA-256", toArrayBuffer(canonicalKey)),
       ),
     );
     // Check for key duplicates
@@ -81,7 +80,7 @@ export async function importKey(
 ): Promise<CryptoKey> {
   class importParams {
     format: "raw" | "spki" = "spki";
-    keyData: ArrayBuffer = new Uint8Array();
+    keyData: ArrayBuffer = new ArrayBuffer(0);
     algorithm: {
       name: "ECDSA" | "Ed25519" | "RSASSA-PKCS1-v1_5" | "RSA-PSS" | "RSA-OAEP";
       namedCurve?: EcdsaTypes;
@@ -95,15 +94,15 @@ export async function importKey(
   if (key.includes("BEGIN")) {
     // If it has a begin then it is a PEM
     params.format = "spki";
-    params.keyData = toDER(key);
+    params.keyData = toArrayBuffer(toDER(key));
   } else if (/^[0-9A-Fa-f]+$/.test(key)) {
     // Is it hex?
     params.format = "raw";
-    params.keyData = hexToUint8Array(key);
+    params.keyData = toArrayBuffer(hexToUint8Array(key));
   } else {
     // It might be base64, without the PEM header, as in sigstore trusted_root
     params.format = "spki";
-    params.keyData = base64ToUint8Array(key);
+    params.keyData = toArrayBuffer(base64ToUint8Array(key));
   }
 
   // Let's see supported key types
@@ -200,7 +199,12 @@ export async function verifySignature(
       return false;
     }
 
-    return await crypto.subtle.verify(options, key, raw_signature, signed);
+    return await crypto.subtle.verify(
+      options,
+      key,
+      toArrayBuffer(raw_signature),
+      toArrayBuffer(signed),
+    );
   } else if (key.algorithm.name === KeyTypes.Ed25519) {
     // No need to specify hash in this case, the crypto API does not take it as input for this key type
     throw new Error(
@@ -287,4 +291,21 @@ export function bufferEqual(a: Uint8Array, b: Uint8Array): boolean {
     if (a[i] !== b[i]) return false;
   }
   return true;
+}
+
+export async function digest(
+  algorithm: string,
+  data: Uint8Array,
+): Promise<Uint8Array> {
+  const result = await crypto.subtle.digest(algorithm, toArrayBuffer(data));
+  return new Uint8Array(result);
+}
+
+export async function verify(
+  data: Uint8Array,
+  key: CryptoKey,
+  signature: Uint8Array,
+  hash: string,
+): Promise<boolean> {
+  return verifySignature(key, data, signature, hash);
 }
