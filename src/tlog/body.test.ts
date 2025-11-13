@@ -100,41 +100,61 @@ describe("verifyTLogBody", () => {
     });
   });
 
-  describe("with unsupported entry kinds", () => {
-    it("should throw for dsse entries", async () => {
+  describe("with DSSE and intoto entries", () => {
+    it("should verify dsse entries when bundle has dsseEnvelope", async () => {
       const bundle = createTestBundle();
-      const entry = createValidHashedRekordEntry();
+      bundle.dsseEnvelope = {
+        payload: "dGVzdA==",
+        payloadType: "application/vnd.in-toto+json",
+        signatures: [{ sig: "c2lnbmF0dXJl" }],
+      };
 
+      const entry = createValidHashedRekordEntry();
       entry.kindVersion.kind = "dsse";
       entry.canonicalizedBody = base64Encode(
         JSON.stringify({
           apiVersion: "0.0.1",
           kind: "dsse",
-          spec: { signature: {} },
+          spec: {
+            signatures: [{ signature: "c2lnbmF0dXJl" }],
+            payloadHash: {
+              algorithm: "sha256",
+              value: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+            }
+          },
         })
       );
 
-      await expect(verifyTLogBody(entry, bundle)).rejects.toThrow(
-        "Unsupported TLog entry kind: dsse"
-      );
+      await expect(verifyTLogBody(entry, bundle)).resolves.toBeUndefined();
     });
 
-    it("should throw for intoto entries", async () => {
+    it("should verify intoto entries when bundle has dsseEnvelope", async () => {
       const bundle = createTestBundle();
-      const entry = createValidHashedRekordEntry();
+      bundle.dsseEnvelope = {
+        payload: "dGVzdA==",
+        payloadType: "application/vnd.in-toto+json",
+        signatures: [{ sig: "c2lnbmF0dXJl" }],
+      };
 
+      const entry = createValidHashedRekordEntry();
       entry.kindVersion.kind = "intoto";
       entry.canonicalizedBody = base64Encode(
         JSON.stringify({
           apiVersion: "0.0.1",
           kind: "intoto",
-          spec: { signature: {} },
+          spec: {
+            content: {
+              envelope: {
+                payload: "dGVzdA==",
+                payloadType: "application/vnd.in-toto+json",
+                signatures: [{ sig: "c2lnbmF0dXJl" }]
+              }
+            }
+          },
         })
       );
 
-      await expect(verifyTLogBody(entry, bundle)).rejects.toThrow(
-        "Unsupported TLog entry kind: intoto"
-      );
+      await expect(verifyTLogBody(entry, bundle)).resolves.toBeUndefined();
     });
   });
 });
