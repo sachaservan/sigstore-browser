@@ -138,16 +138,21 @@ describe("verifyTLogBody", () => {
 
       const entry = createValidHashedRekordEntry();
       entry.kindVersion.kind = "intoto";
+      entry.kindVersion.version = "0.0.2";
       entry.canonicalizedBody = base64Encode(
         JSON.stringify({
-          apiVersion: "0.0.1",
+          apiVersion: "0.0.2",
           kind: "intoto",
           spec: {
             content: {
               envelope: {
                 payload: "dGVzdA==",
                 payloadType: "application/vnd.in-toto+json",
-                signatures: [{ sig: "c2lnbmF0dXJl" }]
+                signatures: [{ sig: "YzJsbmJtRjBkWEpsCg==" }]
+              },
+              payloadHash: {
+                algorithm: "sha256",
+                value: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
               }
             }
           },
