@@ -207,12 +207,11 @@ describe("TSA Timestamp Verification", () => {
       const mockTimestampData = {
         rfc3161Timestamps: [
           {
-            signedTimestamp: base64Encode(new Uint8Array([255])), // Invalid
+            signedTimestamp: base64Encode(new Uint8Array([255])),
           },
         ],
       };
 
-      // Mock parse to throw
       vi.spyOn(RFC3161Timestamp, "parse").mockImplementation(() => {
         throw new Error("Invalid timestamp");
       });
