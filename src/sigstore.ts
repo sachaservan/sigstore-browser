@@ -24,6 +24,7 @@ import {
 import { verifyMerkleInclusion } from "./tlog/merkle.js";
 import { verifyCheckpoint } from "./tlog/checkpoint.js";
 import { verifyTLogBody } from "./tlog/body.js";
+import { verifyBundleTimestamp } from "./timestamp/tsa.js";
 
 export class SigstoreVerifier {
   private root: Sigstore | undefined;
@@ -361,7 +362,23 @@ export class SigstoreVerifier {
       );
     }
 
-    // # 6 TSA *skipping*, not supported by sigstore community
+    // # 6 TSA Timestamp Verification (if present)
+    let verifiedTimestamp: Date | undefined;
+    if (bundle.verificationMaterial.timestampVerificationData) {
+      // Verify TSA timestamps if present
+      verifiedTimestamp = await verifyBundleTimestamp(
+        bundle.verificationMaterial.timestampVerificationData,
+        signature,
+        this.rawRoot?.timestampAuthorities || []
+      );
+
+      // If we have a verified timestamp, check certificate validity at that time
+      if (verifiedTimestamp && !signingCert.validForDate(verifiedTimestamp)) {
+        throw new Error(
+          "Certificate was not valid at the time of timestamping"
+        );
+      }
+    }
 
     // # 7 Revocation *skipping* not really a thing (unsurprisingly)
 
