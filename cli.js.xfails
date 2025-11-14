@@ -1,0 +1,22 @@
+# Signing tests - not supported (verification-only client)
+test_sign*
+
+# TSA timestamp tests - not yet implemented (Phase 4)
+test_verify_tsa*
+
+# DSSE tests - not yet fully implemented (Phase 4)
+test_verify_dsse*
+test_verify*dsse*
+
+# Transparency log body verification - not yet fully implemented (Phase 3)
+test_verify*hashedrekord*
+test_verify*intoto*
+
+# Bundle format tests that may require additional implementation
+test_verify_bundle_with_trust_root*
+
+# CPython release bundle tests - optional for minimal client
+test_verify_cpython_release_bundles*
+
+# Any tests requiring features not yet implemented
+test_verify_with_checkpoint*
