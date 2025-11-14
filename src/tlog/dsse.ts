@@ -1,4 +1,16 @@
-import { base64ToUint8Array, hexToUint8Array, toArrayBuffer } from "../encoding.js";
+/*
+ * DSSE transparency log entry verification
+ *
+ * Based on sigstore-js:
+ * https://github.com/sigstore/sigstore-js/blob/main/packages/verify/src/tlog/dsse.ts
+ *
+ * Key differences from sigstore-js:
+ * - Browser-compatible: uses Uint8Array instead of Buffer for binary data
+ * - Direct bundle field comparison instead of SignatureContent abstraction
+ * - Uses crypto.subtle.digest for hash computation instead of Node.js crypto
+ */
+
+import { base64ToUint8Array, hexToUint8Array, toArrayBuffer, uint8ArrayEqual } from "../encoding.js";
 import type { SigstoreBundle } from "../bundle.js";
 import type { RekorEntry } from "./body.js";
 
@@ -80,18 +92,4 @@ async function verifyDSSE001Body(
   if (!uint8ArrayEqual(tlogHashBytes, bundleHashBytes)) {
     throw new Error("DSSE payload hash mismatch between TLog entry and bundle");
   }
-}
-
-function uint8ArrayEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.byteLength !== b.byteLength) {
-    return false;
-  }
-
-  for (let i = 0; i < a.byteLength; i++) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-
-  return true;
 }

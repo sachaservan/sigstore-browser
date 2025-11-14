@@ -1,4 +1,17 @@
-import { base64Decode, base64ToUint8Array, hexToUint8Array, toArrayBuffer } from "../encoding.js";
+/*
+ * Intoto transparency log entry verification
+ *
+ * Based on sigstore-js:
+ * https://github.com/sigstore/sigstore-js/blob/main/packages/verify/src/tlog/intoto.ts
+ *
+ * Key differences from sigstore-js:
+ * - Browser-compatible: uses Uint8Array instead of Buffer for binary data
+ * - Direct bundle field comparison instead of SignatureContent abstraction
+ * - Uses crypto.subtle.digest for hash computation instead of Node.js crypto
+ * - Handles double-base64 encoding using our base64Decode utility
+ */
+
+import { base64Decode, base64ToUint8Array, hexToUint8Array, toArrayBuffer, uint8ArrayEqual } from "../encoding.js";
 import type { SigstoreBundle } from "../bundle.js";
 import type { RekorEntry } from "./body.js";
 
@@ -82,18 +95,4 @@ export async function verifyIntotoBody(
       throw new Error("Intoto payload hash mismatch between TLog entry and bundle");
     }
   }
-}
-
-function uint8ArrayEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.byteLength !== b.byteLength) {
-    return false;
-  }
-
-  for (let i = 0; i < a.byteLength; i++) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-
-  return true;
 }
