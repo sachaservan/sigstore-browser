@@ -1,15 +1,9 @@
 {
-  "name": "sigstore-browser",
-  "version": "0.1.0",
-  "description": "A minimal browser-only Sigstore verification library.",
-  "main": "dist/index.js",
+  "name": "tuf-browser",
+  "version": "0.1",
+  "description": "A minimal TUF client for both node and the browser.",
+  "main": "dist/cli.js",
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
@@ -17,8 +11,8 @@
     "lint": "npx eslint . --fix && npx prettier --write ."
   },
   "keywords": [
-    "sigstore",
-    "rekor",
+    "theupdateframework",
+    "tuf",
     "browser",
     "typescript"
   ],
@@ -35,8 +29,5 @@
     "@vitest/coverage-v8": "^3.2.4",
     "eslint-plugin-simple-import-sort": "^12.1.1",
     "typescript-eslint": "^8.37.0"
-  },
-  "comments": {
-    "vendored": "tuf-browser is currently vendored in vendor/tuf-browser/ - will be replaced with npm dependency when published"
   }
 }
