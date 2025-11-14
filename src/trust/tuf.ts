@@ -9,13 +9,7 @@
 
 import type { TrustedRoot } from "../interfaces.js";
 import { Uint8ArrayToString } from "../encoding.js";
-
-// TUF client import - will be from tuf-browser package
-// For now, we define the interface to avoid dependency issues during development
-interface TUFClientInterface {
-  getTarget(name: string): Promise<Uint8Array>;
-  listSignedTargets(): Promise<any>;
-}
+import type { TUFClient } from "tuf-browser/dist/tuf.js";
 
 /**
  * Options for TrustedRootProvider configuration
@@ -88,7 +82,7 @@ export class TrustedRootProvider {
   private trustedRootTarget: string;
   private cacheTTL: number;
 
-  private tufClient?: TUFClientInterface;
+  private tufClient?: TUFClient;
   private cachedRoot?: TrustedRoot;
   private cacheTimestamp?: number;
 
@@ -111,24 +105,23 @@ export class TrustedRootProvider {
       return;
     }
 
-    // Import TUF client dynamically
-    // NOTE: This assumes tuf-browser is available as a dependency
-    // TODO: Uncomment when tuf-browser is added as a dependency
-    // For now, this is a placeholder implementation
-    throw new Error(
-      'TUF integration requires tuf-browser dependency. ' +
-      'Install tuf-browser or provide trusted root directly via loadSigstoreRoot().'
-    );
+    try {
+      const { TUFClient } = await import('tuf-browser/dist/tuf.js');
 
-    // Future implementation when tuf-browser is available:
-    // const { TUFClient } = await import('tuf-browser');
-    // const rootMetadata = this.initialRoot || await this.getDefaultRoot();
-    // this.tufClient = new TUFClient(
-    //   this.metadataUrl,
-    //   rootMetadata,
-    //   this.namespace,
-    //   this.targetBaseUrl
-    // );
+      // Get initial root metadata
+      const rootMetadata = this.initialRoot || await this.getDefaultRoot();
+
+      this.tufClient = new TUFClient(
+        this.metadataUrl,
+        rootMetadata,
+        this.namespace,
+        this.targetBaseUrl
+      );
+    } catch (error) {
+      throw new Error(
+        `Failed to initialize TUF client: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /**
