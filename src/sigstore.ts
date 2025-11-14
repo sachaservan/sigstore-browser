@@ -25,6 +25,7 @@ import { verifyMerkleInclusion } from "./tlog/merkle.js";
 import { verifyCheckpoint } from "./tlog/checkpoint.js";
 import { verifyTLogBody } from "./tlog/body.js";
 import { verifyBundleTimestamp } from "./timestamp/tsa.js";
+import { TrustedRootProvider } from "./trust/tuf.js";
 
 export class SigstoreVerifier {
   private root: Sigstore | undefined;
@@ -109,6 +110,18 @@ export class SigstoreVerifier {
         rawRoot[SigstoreRoots.certificateAuthorities],
       ),
     };
+  }
+
+  /**
+   * Load Sigstore trusted root via TUF
+   * Uses The Update Framework for secure, verified updates of trusted root metadata
+   *
+   * @param tufProvider Optional TrustedRootProvider instance. If not provided, uses default Sigstore TUF repository
+   */
+  async loadSigstoreRootWithTUF(tufProvider?: TrustedRootProvider): Promise<void> {
+    const provider = tufProvider || new TrustedRootProvider();
+    const trustedRoot = await provider.getTrustedRoot();
+    await this.loadSigstoreRoot(trustedRoot);
   }
 
   // Adapted from https://github.com/sigstore/sigstore-js/blob/main/packages/verify/src/key/sct.ts
