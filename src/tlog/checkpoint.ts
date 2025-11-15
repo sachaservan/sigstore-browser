@@ -124,7 +124,16 @@ export async function verifyCheckpoint(
     throw new Error("Missing checkpoint in inclusion proof");
   }
 
-  const integratedTime = new Date(Number(entry.integratedTime) * 1000);
+  // For Rekor v2 bundles, integratedTime may be null
+  // In that case, use current time or extract from checkpoint
+  let integratedTime: Date;
+  if (entry.integratedTime) {
+    integratedTime = new Date(Number(entry.integratedTime) * 1000);
+  } else {
+    // For Rekor v2 bundles without integrated time, use current time
+    // The TLog keys should still be valid
+    integratedTime = new Date();
+  }
   const validTLogs = filterTLogsByDate(tlogs, integratedTime);
 
   const inclusionProof = entry.inclusionProof;
