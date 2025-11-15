@@ -7,18 +7,78 @@ import {
 import { EcdsaTypes, HashAlgorithms, KeyTypes } from "./interfaces.js";
 import { toDER } from "./pem.js";
 
+// Convert PKCS#1 RSAPublicKey to SPKI format
+function pkcs1ToSpki(pkcs1Bytes: Uint8Array): Uint8Array {
+  // RSA algorithm identifier: SEQUENCE { OID rsaEncryption, NULL }
+  // OID 1.2.840.113549.1.1.1 (rsaEncryption) = 06 09 2a 86 48 86 f7 0d 01 01 01
+  const algorithmIdentifier = new Uint8Array([
+    0x30, 0x0d, // SEQUENCE (13 bytes)
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, // OID rsaEncryption
+    0x05, 0x00  // NULL
+  ]);
+
+  // The PKCS#1 key needs to be wrapped in a BIT STRING
+  const bitStringHeader = new Uint8Array([0x03]); // BIT STRING tag
+  const bitStringLength = pkcs1Bytes.length + 1; // +1 for unused bits byte
+  const unusedBits = new Uint8Array([0x00]); // no unused bits
+
+  // Calculate total length for the outer SEQUENCE
+  const totalContentLength = algorithmIdentifier.length + 1 + lengthBytes(bitStringLength).length + bitStringLength;
+
+  // Build the complete SPKI structure
+  const result = new Uint8Array(1 + lengthBytes(totalContentLength).length + totalContentLength);
+  let offset = 0;
+
+  // Outer SEQUENCE
+  result[offset++] = 0x30; // SEQUENCE tag
+  const totalLengthBytes = lengthBytes(totalContentLength);
+  result.set(totalLengthBytes, offset);
+  offset += totalLengthBytes.length;
+
+  // Algorithm identifier
+  result.set(algorithmIdentifier, offset);
+  offset += algorithmIdentifier.length;
+
+  // BIT STRING with PKCS#1 key
+  result[offset++] = 0x03; // BIT STRING tag
+  const bitStringLengthBytes = lengthBytes(bitStringLength);
+  result.set(bitStringLengthBytes, offset);
+  offset += bitStringLengthBytes.length;
+  result[offset++] = 0x00; // unused bits
+  result.set(pkcs1Bytes, offset);
+
+  return result;
+}
+
+// Helper to encode ASN.1 length
+function lengthBytes(length: number): Uint8Array {
+  if (length < 128) {
+    return new Uint8Array([length]);
+  } else if (length < 256) {
+    return new Uint8Array([0x81, length]);
+  } else {
+    // For lengths requiring 2 bytes
+    return new Uint8Array([0x82, (length >> 8) & 0xff, length & 0xff]);
+  }
+}
+
 export async function importKey(
   keytype: string,
   scheme: string,
   key: string,
 ): Promise<CryptoKey> {
+  // Debug logging
+  if (process.env.DEBUG_SIGSTORE) {
+    console.error(`Importing key: keytype=${keytype}, scheme=${scheme}, keyLen=${key.length}`);
+    if (keytype.toLowerCase().includes("pkcs1")) {
+      console.error(`RSA key first 50 chars: ${key.substring(0, 50)}`);
+    }
+  }
+
   class importParams {
     format: "raw" | "spki" = "spki";
     keyData: ArrayBuffer = new ArrayBuffer(0);
-    algorithm: {
-      name: "ECDSA" | "Ed25519" | "RSASSA-PKCS1-v1_5" | "RSA-PSS" | "RSA-OAEP";
-      namedCurve?: EcdsaTypes;
-    } = { name: "ECDSA" };
+    algorithm: RsaHashedImportParams | EcKeyImportParams | Algorithm = { name: "ECDSA" };
     extractable: boolean = true;
     usage: Array<KeyUsage> = ["verify"];
   }
@@ -36,7 +96,21 @@ export async function importKey(
   } else {
     // It might be base64, without the PEM header, as in sigstore trusted_root
     params.format = "spki";
-    params.keyData = toArrayBuffer(base64ToUint8Array(key));
+    const keyBytes = base64ToUint8Array(key);
+
+    // Check if it's a PKCS#1 RSA key (starts with SEQUENCE then large INTEGER for modulus)
+    // PKCS#1 RSAPublicKey starts with 30 82 XX XX 02 82
+    if (keytype.toLowerCase().includes("pkcs1") &&
+        keyBytes[0] === 0x30 && keyBytes[1] === 0x82 &&
+        keyBytes[4] === 0x02 && keyBytes[5] === 0x82) {
+      // Convert PKCS#1 to SPKI
+      if (process.env.DEBUG_SIGSTORE) {
+        console.error('Converting PKCS#1 RSAPublicKey to SPKI format');
+      }
+      params.keyData = toArrayBuffer(pkcs1ToSpki(keyBytes));
+    } else {
+      params.keyData = toArrayBuffer(keyBytes);
+    }
   }
 
   // Let's see supported key types
@@ -54,20 +128,41 @@ export async function importKey(
   } else if (keytype.toLowerCase().includes("ed25519")) {
     // Ed2559 eys can be only one size, we do not need more info
     params.algorithm = { name: "Ed25519" };
-  } else if (keytype.toLowerCase().includes("rsa")) {
-    // Is it even worth to think of supporting it?
-    throw new Error("TODO (or maybe not): impleent RSA keys support.");
+  } else if (keytype.toLowerCase().includes("rsa") || keytype.toLowerCase().includes("pkcs1")) {
+    // RSA support for CT logs and checkpoints
+    // Check scheme to determine which RSA algorithm to use
+    if (scheme.includes("PKCS1") || scheme.includes("RSA_PKCS1")) {
+      // CT logs use RSASSA-PKCS1-v1_5
+      params.algorithm = {
+        name: "RSASSA-PKCS1-v1_5",
+        hash: { name: "SHA-256" },
+      };
+    } else {
+      // Checkpoints and other uses might use RSA-PSS
+      params.algorithm = {
+        name: "RSA-PSS",
+        hash: { name: "SHA-256" },
+      };
+    }
   } else {
     throw new Error(`Unsupported ${keytype}`);
   }
 
-  return await crypto.subtle.importKey(
-    params.format,
-    params.keyData,
-    params.algorithm,
-    params.extractable,
-    params.usage,
-  );
+  try {
+    return await crypto.subtle.importKey(
+      params.format,
+      params.keyData,
+      params.algorithm,
+      params.extractable,
+      params.usage,
+    );
+  } catch (e) {
+    if (process.env.DEBUG_SIGSTORE) {
+      console.error(`Key import failed: format=${params.format}, algorithm=${JSON.stringify(params.algorithm)}`);
+      console.error(`Error: ${e}`);
+    }
+    throw e;
+  }
 }
 
 export async function verifySignature(
@@ -146,8 +241,26 @@ export async function verifySignature(
       toArrayBuffer(sig),
       toArrayBuffer(signed),
     );
-  } else if (key.algorithm.name === KeyTypes.RSA) {
-    throw new Error("RSA could work, if only someone coded the support :)");
+  } else if (key.algorithm.name === "RSA-PSS") {
+    // RSA-PSS signature verification
+    const saltLength = 32; // SHA-256 output length
+    return await crypto.subtle.verify(
+      {
+        name: "RSA-PSS",
+        saltLength: saltLength,
+      },
+      key,
+      toArrayBuffer(sig),
+      toArrayBuffer(signed),
+    );
+  } else if (key.algorithm.name === "RSASSA-PKCS1-v1_5") {
+    // RSASSA-PKCS1-v1_5 signature verification (used by CT logs)
+    return await crypto.subtle.verify(
+      key.algorithm.name,
+      key,
+      toArrayBuffer(sig),
+      toArrayBuffer(signed),
+    );
   } else {
     throw new Error("Unsupported key type!");
   }
