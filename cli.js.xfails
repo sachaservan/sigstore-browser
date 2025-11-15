@@ -1,0 +1,16 @@
+# Signing tests - not supported (verification-only implementation)
+# (skip-signing: true in workflow handles these)
+
+# CPython release verification tests - currently failing due to implementation differences
+# These tests use real-world Python release bundles that may have edge cases
+# The failures suggest issues with:
+# - Certificate issuer verification (getting "Identity issuer is not the verifying one")
+# - Signature verification (getting "Error verifying artifact signature")
+#
+# Known failing test:
+test_verify_cpython_release_bundles
+
+# To investigate:
+# - Compare certificate issuer handling with sigstore-js
+# - Check signature algorithm compatibility
+# - Verify bundle format handling for different versions

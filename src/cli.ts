@@ -3,11 +3,16 @@ import { createHash, webcrypto } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { SigstoreBundle } from "../src/bundle.js";
-import { base64ToUint8Array, Uint8ArrayToHex } from "../src/encoding.js";
-import { TrustedRoot } from "../src/interfaces.js";
-import { SigstoreVerifier } from "../src/sigstore.js";
-import defaultTrustedRoot from "../src/default-trusted-root.json" with { type: "json" };
+import { SigstoreBundle } from "./bundle.js";
+import {
+  base64ToUint8Array,
+  stringToUint8Array,
+  Uint8ArrayToHex,
+  Uint8ArrayToString,
+} from "./encoding.js";
+import { TrustedRoot } from "./interfaces.js";
+import { SigstoreVerifier } from "./sigstore.js";
+import defaultTrustedRoot from "./default-trusted-root.json" with { type: "json" };
 
 // Ensure the global Web Crypto implementation is available when running under Node.js
 if (typeof globalThis.crypto === "undefined") {
@@ -148,6 +153,10 @@ async function resolveArtifact(input: string): Promise<ArtifactInput> {
     /^[0-9a-fA-F]+$/.test(input.slice(digestPrefix.length)) &&
     !(await fileExists(input))
   ) {
+    // Debug: Log when we detect a digest
+    if (process.env.DEBUG_SIGSTORE) {
+      console.error(`Detected digest input: ${input}`);
+    }
     return {
       type: "digest",
       digestHex: input.slice(digestPrefix.length).toLowerCase(),
@@ -157,6 +166,11 @@ async function resolveArtifact(input: string): Promise<ArtifactInput> {
   const resolvedPath = path.resolve(input);
   const artifactBuffer = await readFile(resolvedPath);
   const digestHex = createHash("sha256").update(artifactBuffer).digest("hex");
+
+  // Debug: Log when we treat as a file
+  if (process.env.DEBUG_SIGSTORE) {
+    console.error(`Detected file input: ${input} -> ${resolvedPath}`);
+  }
 
   return {
     type: "file",
@@ -183,6 +197,97 @@ async function loadBundle(bundlePath: string): Promise<SigstoreBundle> {
   return JSON.parse(raw) as SigstoreBundle;
 }
 
+async function verifyDSSEBundle(
+  verifier: SigstoreVerifier,
+  bundle: any,
+  artifact: ArtifactInput,
+  options: CLIOptions,
+): Promise<void> {
+  // For DSSE bundles, the signature is over a specific PAE (Pre-Authentication Encoding)
+  const dsseEnvelope = bundle.dsseEnvelope;
+
+  // Get the payload
+  const payloadBytes = base64ToUint8Array(dsseEnvelope.payload);
+
+  // Parse the InToto statement from the payload
+  const statement = JSON.parse(Uint8ArrayToString(payloadBytes));
+
+  // Extract the subject digest from the InToto statement
+  if (!statement.subject || statement.subject.length === 0) {
+    throw new Error("DSSE bundle has no subject");
+  }
+
+  const subjectDigest = statement.subject[0].digest?.["sha256"];
+  if (!subjectDigest) {
+    throw new Error("DSSE bundle subject has no SHA256 digest");
+  }
+
+  // Verify the artifact digest matches the subject digest
+  if (artifact.digestHex !== subjectDigest.toLowerCase()) {
+    throw new Error(
+      "Artifact digest does not match the digest in the DSSE statement.",
+    );
+  }
+
+  // Create PAE (Pre-Authentication Encoding) for DSSE
+  // Format: "DSSEv1 <payloadType length> <payloadType> <payload length> <payload>"
+  const payloadType = dsseEnvelope.payloadType;
+  const pae = createDSSEPAE(payloadType, payloadBytes);
+
+  // Create a synthetic bundle for verification
+  // The signature in DSSE is over the PAE, not the raw payload
+  // DSSE bundles don't have messageSignature, they have dsseEnvelope
+  const syntheticBundle = {
+    ...bundle,
+    // Keep the dsseEnvelope for body verification
+    messageSignature: {
+      signature: dsseEnvelope.signatures[0].sig,
+      messageDigest: {
+        algorithm: "SHA2_256",
+        // For DSSE, we pass the PAE directly so the digest doesn't matter
+        digest: btoa(String.fromCharCode(...new Uint8Array(32))),
+      },
+    },
+  };
+
+  // Verify using the PAE as the data
+  await verifier.verifyArtifact(
+    options.certificateIdentity,
+    options.certificateOidcIssuer,
+    syntheticBundle,
+    pae,
+    false, // DSSE always has the full data
+  );
+}
+
+function createDSSEPAE(payloadType: string, payload: Uint8Array): Uint8Array {
+  // Create PAE according to DSSE spec
+  // "DSSEv1 <len(type)> <type> <len(payload)> <payload>"
+  const prefix = "DSSEv1";
+  const prefixBytes = stringToUint8Array(prefix + " ");
+  const typeLen = stringToUint8Array(payloadType.length + " ");
+  const typeBytes = stringToUint8Array(payloadType + " ");
+  const payloadLen = stringToUint8Array(payload.length + " ");
+
+  // Combine all parts
+  const pae = new Uint8Array(
+    prefixBytes.length +
+    typeLen.length +
+    typeBytes.length +
+    payloadLen.length +
+    payload.length
+  );
+
+  let offset = 0;
+  pae.set(prefixBytes, offset); offset += prefixBytes.length;
+  pae.set(typeLen, offset); offset += typeLen.length;
+  pae.set(typeBytes, offset); offset += typeBytes.length;
+  pae.set(payloadLen, offset); offset += payloadLen.length;
+  pae.set(payload, offset);
+
+  return pae;
+}
+
 async function verifyBundle(options: CLIOptions): Promise<void> {
   const [trustedRoot, bundle, artifact] = await Promise.all([
     loadTrustedRoot(options.trustedRootPath),
@@ -192,6 +297,12 @@ async function verifyBundle(options: CLIOptions): Promise<void> {
 
   const verifier = new SigstoreVerifier();
   await verifier.loadSigstoreRoot(trustedRoot);
+
+  // Handle DSSE bundles differently
+  if ((bundle as any).dsseEnvelope) {
+    await verifyDSSEBundle(verifier, bundle as any, artifact, options);
+    return;
+  }
 
   if (!bundle.messageSignature) {
     throw new Error("Bundle does not contain a message signature");
@@ -216,12 +327,14 @@ async function verifyBundle(options: CLIOptions): Promise<void> {
 
   const verificationTarget =
     artifact.type === "file" ? artifact.data : bundleDigestBytes;
+  const isDigestOnly = artifact.type === "digest";
 
   await verifier.verifyArtifact(
     options.certificateIdentity,
     options.certificateOidcIssuer,
     bundle,
     verificationTarget,
+    isDigestOnly,
   );
 }
 
@@ -233,6 +346,9 @@ async function main(): Promise<void> {
   } catch (error) {
     if (error instanceof Error) {
       console.error(error.message);
+      if (process.env.DEBUG_SIGSTORE) {
+        console.error(error.stack);
+      }
     } else {
       console.error(error);
     }
