@@ -116,14 +116,17 @@ export async function importKey(
   // Let's see supported key types
   if (keytype.toLowerCase().includes("ecdsa")) {
     // Let'd find out the key size, and retrieve the proper naming for crypto.subtle
-    if (scheme.includes("256")) {
+    if (scheme.includes("256") || scheme === "secp256r1") {
       params.algorithm = { name: "ECDSA", namedCurve: EcdsaTypes.P256 };
-    } else if (scheme.includes("384")) {
+    } else if (scheme.includes("384") || scheme === "secp384r1") {
       params.algorithm = { name: "ECDSA", namedCurve: EcdsaTypes.P384 };
-    } else if (scheme.includes("521")) {
+    } else if (scheme.includes("521") || scheme === "secp521r1") {
       params.algorithm = { name: "ECDSA", namedCurve: EcdsaTypes.P521 };
     } else {
-      throw new Error("Cannot determine ECDSA key size.");
+      if (process.env.DEBUG_SIGSTORE) {
+        console.error(`Cannot determine ECDSA key size for scheme: ${scheme}`);
+      }
+      throw new Error(`Cannot determine ECDSA key size for scheme: ${scheme}`);
     }
   } else if (keytype.toLowerCase().includes("ed25519")) {
     // Ed2559 eys can be only one size, we do not need more info
@@ -149,6 +152,9 @@ export async function importKey(
   }
 
   try {
+    if (process.env.DEBUG_SIGSTORE) {
+      console.error(`About to import key: format=${params.format}, algorithm=${JSON.stringify(params.algorithm)}`);
+    }
     return await crypto.subtle.importKey(
       params.format,
       params.keyData,
@@ -171,6 +177,10 @@ export async function verifySignature(
   sig: Uint8Array,
   hash: string = "sha256",
 ): Promise<boolean> {
+  if (process.env.DEBUG_SIGSTORE) {
+    console.error(`verifySignature called with key algorithm: ${JSON.stringify(key.algorithm)}, hash: ${hash}`);
+  }
+
   const options: {
     name: string;
     hash?: {
@@ -228,12 +238,23 @@ export async function verifySignature(
       return false;
     }
 
-    return await crypto.subtle.verify(
-      options,
-      key,
-      toArrayBuffer(raw_signature),
-      toArrayBuffer(signed),
-    );
+    if (process.env.DEBUG_SIGSTORE) {
+      console.error(`About to verify ECDSA signature with options: ${JSON.stringify(options)}`);
+    }
+
+    try {
+      return await crypto.subtle.verify(
+        options,
+        key,
+        toArrayBuffer(raw_signature),
+        toArrayBuffer(signed),
+      );
+    } catch (e) {
+      if (process.env.DEBUG_SIGSTORE) {
+        console.error(`ECDSA verify failed: ${e}`);
+      }
+      throw e;
+    }
   } else if (key.algorithm.name === KeyTypes.Ed25519) {
     return await crypto.subtle.verify(
       key.algorithm.name,
