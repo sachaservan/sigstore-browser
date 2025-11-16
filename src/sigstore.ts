@@ -113,7 +113,7 @@ export class SigstoreVerifier {
         let parentCert: X509Certificate | undefined = undefined;
         let currentCert: X509Certificate | undefined = undefined;
         for (const cert of tsa.certChain.certificates.reverse()) {
-          currentCert = X509Certificate.parse(cert.rawBytes);
+          currentCert = X509Certificate.parse(base64ToUint8Array(cert.rawBytes));
 
           if (parentCert == undefined) {
             parentCert = currentCert;
@@ -147,7 +147,7 @@ export class SigstoreVerifier {
         let parentCert: X509Certificate | undefined = undefined;
         let currentCert: X509Certificate | undefined = undefined;
         for (const cert of ca.certChain.certificates.reverse()) {
-          currentCert = X509Certificate.parse(cert.rawBytes);
+          currentCert = X509Certificate.parse(base64ToUint8Array(cert.rawBytes));
 
           if (parentCert == undefined) {
             parentCert = currentCert;
@@ -390,10 +390,15 @@ export class SigstoreVerifier {
       }
 
       if (loggedCertContent) {
-        // The certificate is base64-encoded DER format
-        const loggedCert = X509Certificate.parse(
-          base64ToUint8Array(loggedCertContent),
-        );
+        // For hashedrekord v0.0.1, publicKey.content is base64-encoded PEM
+        // For hashedRekordV002, x509Certificate.rawBytes is base64-encoded DER
+        let loggedCert: X509Certificate;
+        if (bodyJson.spec.hashedRekordV002) {
+          loggedCert = X509Certificate.parse(base64ToUint8Array(loggedCertContent));
+        } else {
+          const pemString = Uint8ArrayToString(base64ToUint8Array(loggedCertContent));
+          loggedCert = X509Certificate.parse(pemString);
+        }
 
         if (!cert.equals(loggedCert)) {
           throw new Error(
@@ -455,7 +460,21 @@ export class SigstoreVerifier {
       throw new Error("No certificate found in bundle");
     }
 
-    const signingCert = X509Certificate.parse(cert.rawBytes);
+    if (process.env.DEBUG_SIGSTORE) {
+      console.error(`Parsing certificate, rawBytes length: ${cert.rawBytes.length}, type: ${typeof cert.rawBytes}`);
+    }
+    let signingCert: X509Certificate;
+    try {
+      signingCert = X509Certificate.parse(base64ToUint8Array(cert.rawBytes));
+      if (process.env.DEBUG_SIGSTORE) {
+        console.error(`Certificate parsed successfully`);
+      }
+    } catch (e) {
+      if (process.env.DEBUG_SIGSTORE) {
+        console.error(`Failed to parse certificate: ${e}`);
+      }
+      throw e;
+    }
 
     if (!bundle.messageSignature) {
       throw new Error("No message signature found in bundle");
