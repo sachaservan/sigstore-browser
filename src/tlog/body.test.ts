@@ -115,7 +115,7 @@ describe("verifyTLogBody", () => {
       );
 
       await expect(verifyTLogBody(entry, bundle)).rejects.toThrow(
-        "Unsupported TLog entry kind: dsse"
+        "Bundle missing dsseEnvelope for DSSE entry"
       );
     });
 
@@ -133,7 +133,7 @@ describe("verifyTLogBody", () => {
       );
 
       await expect(verifyTLogBody(entry, bundle)).rejects.toThrow(
-        "Unsupported TLog entry kind: intoto"
+        "Unsupported intoto version: 0.0.1"
       );
     });
   });
