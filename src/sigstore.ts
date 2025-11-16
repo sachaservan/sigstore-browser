@@ -601,10 +601,17 @@ export class SigstoreVerifier {
         throw new Error("DSSE payload subject has no SHA256 digest");
       }
 
-      // Compute the digest of the provided data
-      const artifactDigest = Uint8ArrayToHex(
-        new Uint8Array(await crypto.subtle.digest("SHA-256", toArrayBuffer(data)))
-      );
+      // Compute or extract the artifact digest
+      let artifactDigest: string;
+      if (isDigestOnly) {
+        // data is already the digest bytes
+        artifactDigest = Uint8ArrayToHex(data);
+      } else {
+        // data is the file content, compute the digest
+        artifactDigest = Uint8ArrayToHex(
+          new Uint8Array(await crypto.subtle.digest("SHA-256", toArrayBuffer(data)))
+        );
+      }
 
       if (artifactDigest !== subjectDigest) {
         throw new Error("Artifact digest does not match DSSE payload subject digest");
