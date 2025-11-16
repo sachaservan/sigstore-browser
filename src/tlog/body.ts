@@ -12,6 +12,8 @@
 import { base64Decode } from "../encoding.js";
 import type { SigstoreBundle, TLogEntry } from "../bundle.js";
 import { verifyHashedRekordBody } from "./hashedrekord.js";
+import { verifyDSSEBody } from "./dsse.js";
+import { verifyIntotoBody } from "./intoto.js";
 
 export interface RekorEntry {
   apiVersion: string;
@@ -37,9 +39,9 @@ export async function verifyTLogBody(
     case "hashedrekord":
       return verifyHashedRekordBody(rekorEntry, bundle);
     case "dsse":
-      throw new Error(`Unsupported TLog entry kind: dsse`);
+      return verifyDSSEBody(rekorEntry, bundle);
     case "intoto":
-      throw new Error(`Unsupported TLog entry kind: intoto`);
+      return verifyIntotoBody(rekorEntry, bundle);
     default:
       throw new Error(`Unsupported TLog entry kind: ${rekorEntry.kind}`);
   }
