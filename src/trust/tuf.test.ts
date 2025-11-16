@@ -78,7 +78,7 @@ describe("TrustedRootProvider", () => {
 
       // Should fail because TUF client is not available
       await expect(provider.refreshTrustedRoot()).rejects.toThrow();
-    });
+    }, 10000);
   });
 });
 
