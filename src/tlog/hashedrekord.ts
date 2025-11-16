@@ -29,9 +29,26 @@ interface HashedRekordSpec {
 }
 
 interface HashedRekordEntry extends RekorEntry {
-  apiVersion: "0.0.1";
+  apiVersion: "0.0.1" | "0.0.2";
   kind: "hashedrekord";
-  spec: HashedRekordSpec;
+  spec: HashedRekordSpec | HashedRekordV002Spec;
+}
+
+interface HashedRekordV002Spec {
+  hashedRekordV002: {
+    signature: {
+      content: string;
+      verifier: {
+        x509Certificate: {
+          rawBytes: string;
+        };
+      };
+    };
+    data: {
+      algorithm: string;
+      digest: string;
+    };
+  };
 }
 
 export async function verifyHashedRekordBody(
@@ -42,7 +59,9 @@ export async function verifyHashedRekordBody(
 
   switch (hashedRekordEntry.apiVersion) {
     case "0.0.1":
-      return verifyHashedRekordTLogBody(hashedRekordEntry, bundle);
+      return verifyHashedRekordV001Body(hashedRekordEntry, bundle);
+    case "0.0.2":
+      return verifyHashedRekordV002Body(hashedRekordEntry, bundle);
     default:
       throw new Error(
         `Unsupported hashedrekord version: ${hashedRekordEntry.apiVersion}`
@@ -50,15 +69,16 @@ export async function verifyHashedRekordBody(
   }
 }
 
-function verifyHashedRekordTLogBody(
+function verifyHashedRekordV001Body(
   entry: HashedRekordEntry,
   bundle: SigstoreBundle
 ): void {
+  const spec = entry.spec as HashedRekordSpec;
   if (!bundle.messageSignature) {
     throw new Error("Bundle missing messageSignature for hashedrekord entry");
   }
 
-  const tlogSig = entry.spec.signature.content || "";
+  const tlogSig = spec.signature.content || "";
   const tlogSigBytes = base64ToUint8Array(tlogSig);
   const bundleSigBytes = base64ToUint8Array(bundle.messageSignature.signature);
 
@@ -66,7 +86,7 @@ function verifyHashedRekordTLogBody(
     throw new Error("Signature mismatch between TLog entry and bundle");
   }
 
-  const tlogDigest = entry.spec.data.hash?.value || "";
+  const tlogDigest = spec.data.hash?.value || "";
   const tlogDigestBytes = hexToUint8Array(tlogDigest);
   const bundleDigestBytes = base64ToUint8Array(
     bundle.messageSignature.messageDigest.digest
@@ -74,5 +94,33 @@ function verifyHashedRekordTLogBody(
 
   if (!uint8ArrayEqual(tlogDigestBytes, bundleDigestBytes)) {
     throw new Error("Digest mismatch between TLog entry and bundle");
+  }
+}
+
+function verifyHashedRekordV002Body(
+  entry: HashedRekordEntry,
+  bundle: SigstoreBundle
+): void {
+  const spec = (entry.spec as HashedRekordV002Spec).hashedRekordV002;
+  if (!bundle.messageSignature) {
+    throw new Error("Bundle missing messageSignature for hashedrekord v0.0.2 entry");
+  }
+
+  const tlogSig = spec.signature.content || "";
+  const tlogSigBytes = base64ToUint8Array(tlogSig);
+  const bundleSigBytes = base64ToUint8Array(bundle.messageSignature.signature);
+
+  if (!uint8ArrayEqual(tlogSigBytes, bundleSigBytes)) {
+    throw new Error("Signature mismatch between TLog entry and bundle (v0.0.2)");
+  }
+
+  const tlogDigest = spec.data.digest || "";
+  const tlogDigestBytes = base64ToUint8Array(tlogDigest);
+  const bundleDigestBytes = base64ToUint8Array(
+    bundle.messageSignature.messageDigest.digest
+  );
+
+  if (!uint8ArrayEqual(tlogDigestBytes, bundleDigestBytes)) {
+    throw new Error("Digest mismatch between TLog entry and bundle (v0.0.2)");
   }
 }
