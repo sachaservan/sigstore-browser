@@ -240,6 +240,16 @@ export class SigstoreVerifier {
       return true;
     }
 
+    // Check for duplicate SCTs (same log ID)
+    const seenLogIds = new Set<string>();
+    for (const sct of extSCT.signedCertificateTimestamps) {
+      const logIdHex = Uint8ArrayToHex(sct.logID);
+      if (seenLogIds.has(logIdHex)) {
+        throw new Error(`Duplicate SCT found for log ID: ${logIdHex}`);
+      }
+      seenLogIds.add(logIdHex);
+    }
+
     // Construct the PreCert structure
     // https://www.rfc-editor.org/rfc/rfc6962#section-3.2
     const preCert = new ByteStream();
@@ -257,12 +267,9 @@ export class SigstoreVerifier {
 
     // Let's iterate over the SCTs, if there are more than one, and see if we can validate at least one
     let lastError: any = null;
-    for (const logId of extSCT.signedCertificateTimestamps.keys()) {
-      const sct = extSCT.signedCertificateTimestamps[logId];
+    for (const sct of extSCT.signedCertificateTimestamps) {
 
-      // SCT should be before cert issuance
-      // TODO: it's debatable if this condition is too strict: the log could lag a bit ans this should
-      // still be valid
+      // SCT should be within certificate validity period
       if (sct.datetime < cert.notBefore || sct.datetime > cert.notAfter) {
         lastError = new Error(`SCT timestamp is invalid: SCT datetime ${sct.datetime}, cert notBefore ${cert.notBefore}, cert notAfter ${cert.notAfter}`);
         continue; // Try next SCT instead of throwing immediately
@@ -287,7 +294,6 @@ export class SigstoreVerifier {
           }
         } catch (e) {
           lastError = e;
-          console.error(`SCT verify error for log ${Uint8ArrayToHex(sct.logID)}:`, e);
         }
       }
 
@@ -480,21 +486,7 @@ export class SigstoreVerifier {
       throw new Error("No certificate found in bundle");
     }
 
-    if (process.env.DEBUG_SIGSTORE) {
-      console.error(`Parsing certificate, rawBytes length: ${cert.rawBytes.length}, type: ${typeof cert.rawBytes}`);
-    }
-    let signingCert: X509Certificate;
-    try {
-      signingCert = X509Certificate.parse(base64ToUint8Array(cert.rawBytes));
-      if (process.env.DEBUG_SIGSTORE) {
-        console.error(`Certificate parsed successfully`);
-      }
-    } catch (e) {
-      if (process.env.DEBUG_SIGSTORE) {
-        console.error(`Failed to parse certificate: ${e}`);
-      }
-      throw e;
-    }
+    const signingCert = X509Certificate.parse(base64ToUint8Array(cert.rawBytes));
 
     // Handle both regular bundles (messageSignature) and DSSE bundles (dsseEnvelope)
     let signature: Uint8Array;

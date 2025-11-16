@@ -13,7 +13,7 @@
 import { RFC3161Timestamp } from "../rfc3161/index.js";
 import { X509Certificate } from "../x509/cert.js";
 import { bufferEqual } from "../crypto.js";
-import { base64ToUint8Array } from "../encoding.js";
+import { base64ToUint8Array, Uint8ArrayToHex } from "../encoding.js";
 import type { RawTimestampAuthority } from "../interfaces.js";
 
 /**
@@ -38,19 +38,11 @@ export async function verifyRFC3161Timestamp(
     signingTime
   );
 
-  if (process.env.DEBUG_SIGSTORE) {
-    console.error(`Valid authorities after date filter: ${validAuthorities.length}`);
-  }
-
   // Filter for CAs which match serial and issuer embedded in the timestamp
   validAuthorities = filterCAsBySerialAndIssuer(validAuthorities, {
     serialNumber: timestamp.signerSerialNumber,
     issuer: timestamp.signerIssuer,
   });
-
-  if (process.env.DEBUG_SIGSTORE) {
-    console.error(`Valid authorities after serial/issuer filter: ${validAuthorities.length}`);
-  }
 
   // Check that we can verify the timestamp with AT LEAST ONE of the remaining CAs
   const verificationResults = await Promise.allSettled(
@@ -101,11 +93,6 @@ function filterCAsBySerialAndIssuer(
   timestampAuthorities: RawTimestampAuthority[],
   criteria: { serialNumber: Uint8Array; issuer: Uint8Array }
 ): RawTimestampAuthority[] {
-  if (process.env.DEBUG_SIGSTORE) {
-    console.error(`Filtering by serial: ${Buffer.from(criteria.serialNumber).toString('hex')}`);
-    console.error(`Filtering by issuer length: ${criteria.issuer.length}`);
-  }
-
   return timestampAuthorities.filter(ca => {
     if (!ca.certChain || ca.certChain.certificates.length === 0) {
       return false;
@@ -115,17 +102,9 @@ function filterCAsBySerialAndIssuer(
     for (let i = 0; i < ca.certChain.certificates.length; i++) {
       const cert = X509Certificate.parse(base64ToUint8Array(ca.certChain.certificates[i].rawBytes));
 
-      if (process.env.DEBUG_SIGSTORE) {
-        console.error(`CA cert[${i}] serial: ${Buffer.from(cert.serialNumber).toString('hex')}`);
-        console.error(`CA cert[${i}] issuer length: ${cert.issuer.length}`);
-      }
-
       // If this certificate matches the criteria, we found the right CA
       if (bufferEqual(cert.serialNumber, criteria.serialNumber) &&
           bufferEqual(cert.issuer, criteria.issuer)) {
-        if (process.env.DEBUG_SIGSTORE) {
-          console.error(`Found matching certificate at index ${i}`);
-        }
         return true;
       }
     }
@@ -171,19 +150,8 @@ async function verifyTimestampForCA(
   // Get the public key from the signing certificate
   const publicKey = await signingCert.publicKeyObj;
 
-  if (process.env.DEBUG_SIGSTORE) {
-    console.error(`Timestamp signing cert algorithm: ${publicKey.algorithm.name}`);
-  }
-
   // Verify the timestamp signature using the existing RFC3161 implementation
-  try {
-    await timestamp.verify(data, publicKey);
-  } catch (e) {
-    if (process.env.DEBUG_SIGSTORE) {
-      console.error(`Timestamp verify failed: ${e}`);
-    }
-    throw e;
-  }
+  await timestamp.verify(data, publicKey);
 }
 
 /**
@@ -241,11 +209,6 @@ export async function verifyBundleTimestamp(
     return undefined;
   }
 
-  if (process.env.DEBUG_SIGSTORE) {
-    console.error(`Processing ${timestampData.rfc3161Timestamps.length} RFC3161 timestamps`);
-    console.error(`Timestamp authorities: ${timestampAuthorities.length}`);
-  }
-
   // Process each RFC3161 timestamp
   const errors: string[] = [];
   for (const tsData of timestampData.rfc3161Timestamps) {
@@ -253,10 +216,6 @@ export async function verifyBundleTimestamp(
       // Decode the base64-encoded timestamp
       const timestampBytes = base64ToUint8Array(tsData.signedTimestamp);
       const timestamp = RFC3161Timestamp.parse(timestampBytes);
-
-      if (process.env.DEBUG_SIGSTORE) {
-        console.error(`Timestamp signing time: ${timestamp.signingTime}`);
-      }
 
       const signingTime = await verifyRFC3161Timestamp(
         timestamp,
@@ -266,9 +225,6 @@ export async function verifyBundleTimestamp(
       return signingTime;
     } catch (e) {
       // Continue to next timestamp if this one fails
-      if (process.env.DEBUG_SIGSTORE) {
-        console.error(`Timestamp verification failed: ${e}`);
-      }
       errors.push(e instanceof Error ? e.message : String(e));
       continue;
     }
