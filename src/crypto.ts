@@ -177,8 +177,10 @@ export async function verifySignature(
       toArrayBuffer(signed),
     );
   } else if (key.algorithm.name === KeyTypes.Ed25519) {
+    // Ed25519 verification is handled separately for checkpoint signatures
+    // This path is not used in practice since Fulcio only issues ECDSA certificates
     throw new Error(
-      "This is untested but could likely work, but not for prod usage :)",
+      "Ed25519 signature verification not implemented in generic verifySignature. Use verifyRawSignature for Ed25519.",
     );
   } else if (key.algorithm.name === "RSA-PSS") {
     const saltLength = 32;
@@ -208,8 +210,10 @@ export function bufferEqual(a: Uint8Array, b: Uint8Array): boolean {
     return false;
   }
 
+  // Use constant-time comparison to prevent timing attacks
+  let result = 0;
   for (let i = 0; i < a.byteLength; i++) {
-    if (a[i] !== b[i]) return false;
+    result |= a[i] ^ b[i];
   }
-  return true;
+  return result === 0;
 }
