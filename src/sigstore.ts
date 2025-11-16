@@ -240,6 +240,16 @@ export class SigstoreVerifier {
       return true;
     }
 
+    // Check for duplicate SCTs (same log ID)
+    const seenLogIds = new Set<string>();
+    for (const logId of extSCT.signedCertificateTimestamps.keys()) {
+      const logIdHex = Uint8ArrayToHex(logId);
+      if (seenLogIds.has(logIdHex)) {
+        throw new Error(`Duplicate SCT found for log ID: ${logIdHex}`);
+      }
+      seenLogIds.add(logIdHex);
+    }
+
     // Construct the PreCert structure
     // https://www.rfc-editor.org/rfc/rfc6962#section-3.2
     const preCert = new ByteStream();
@@ -287,7 +297,6 @@ export class SigstoreVerifier {
           }
         } catch (e) {
           lastError = e;
-          console.error(`SCT verify error for log ${Uint8ArrayToHex(sct.logID)}:`, e);
         }
       }
 
