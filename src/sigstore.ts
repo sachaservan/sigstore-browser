@@ -270,9 +270,7 @@ export class SigstoreVerifier {
     for (const logId of extSCT.signedCertificateTimestamps.keys()) {
       const sct = extSCT.signedCertificateTimestamps[logId];
 
-      // SCT should be before cert issuance
-      // TODO: it's debatable if this condition is too strict: the log could lag a bit ans this should
-      // still be valid
+      // SCT should be within certificate validity period
       if (sct.datetime < cert.notBefore || sct.datetime > cert.notAfter) {
         lastError = new Error(`SCT timestamp is invalid: SCT datetime ${sct.datetime}, cert notBefore ${cert.notBefore}, cert notAfter ${cert.notAfter}`);
         continue; // Try next SCT instead of throwing immediately

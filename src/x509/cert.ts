@@ -164,7 +164,6 @@ export class X509Certificate {
     return ext ? new X509SCTExtension(ext) : undefined;
   }
 
-  // TODO, improve this, support v1, do not force undefined
   get extFulcioIssuerV1(): X509FulcioIssuerV1 | undefined {
     const ext = this.findExtension(EXTENSION_OID_FULCIO_ISSUER_V1);
     return ext ? new X509FulcioIssuerV1(ext) : undefined;
@@ -183,8 +182,6 @@ export class X509Certificate {
       return ca && this.extKeyUsage.keyCertSign;
     }
 
-    // TODO: test coverage for this case
-    /* istanbul ignore next */
     return ca;
   }
 
