@@ -38,11 +38,19 @@ export async function verifyRFC3161Timestamp(
     signingTime
   );
 
+  if (process.env.DEBUG_SIGSTORE) {
+    console.error(`Valid authorities after date filter: ${validAuthorities.length}`);
+  }
+
   // Filter for CAs which match serial and issuer embedded in the timestamp
   validAuthorities = filterCAsBySerialAndIssuer(validAuthorities, {
     serialNumber: timestamp.signerSerialNumber,
     issuer: timestamp.signerIssuer,
   });
+
+  if (process.env.DEBUG_SIGSTORE) {
+    console.error(`Valid authorities after serial/issuer filter: ${validAuthorities.length}`);
+  }
 
   // Check that we can verify the timestamp with AT LEAST ONE of the remaining CAs
   const verificationResults = await Promise.allSettled(
@@ -54,7 +62,10 @@ export async function verifyRFC3161Timestamp(
   );
 
   if (!verified) {
-    throw new Error("Timestamp could not be verified against any trusted authority");
+    const errors = verificationResults
+      .filter(r => r.status === "rejected")
+      .map(r => (r as PromiseRejectedResult).reason?.message || 'Unknown error');
+    throw new Error(`Timestamp could not be verified against any trusted authority. Errors: ${errors.join(', ')}`);
   }
 
   return signingTime;
@@ -90,17 +101,36 @@ function filterCAsBySerialAndIssuer(
   timestampAuthorities: RawTimestampAuthority[],
   criteria: { serialNumber: Uint8Array; issuer: Uint8Array }
 ): RawTimestampAuthority[] {
+  if (process.env.DEBUG_SIGSTORE) {
+    console.error(`Filtering by serial: ${Buffer.from(criteria.serialNumber).toString('hex')}`);
+    console.error(`Filtering by issuer length: ${criteria.issuer.length}`);
+  }
+
   return timestampAuthorities.filter(ca => {
     if (!ca.certChain || ca.certChain.certificates.length === 0) {
       return false;
     }
 
-    // Parse the leaf certificate
-    const leafCert = X509Certificate.parse(base64ToUint8Array(ca.certChain.certificates[0].rawBytes));
+    // Check all certificates in the chain to find the one matching the criteria
+    for (let i = 0; i < ca.certChain.certificates.length; i++) {
+      const cert = X509Certificate.parse(base64ToUint8Array(ca.certChain.certificates[i].rawBytes));
 
-    // Compare serial number and issuer
-    return bufferEqual(leafCert.serialNumber, criteria.serialNumber) &&
-           bufferEqual(leafCert.issuer, criteria.issuer);
+      if (process.env.DEBUG_SIGSTORE) {
+        console.error(`CA cert[${i}] serial: ${Buffer.from(cert.serialNumber).toString('hex')}`);
+        console.error(`CA cert[${i}] issuer length: ${cert.issuer.length}`);
+      }
+
+      // If this certificate matches the criteria, we found the right CA
+      if (bufferEqual(cert.serialNumber, criteria.serialNumber) &&
+          bufferEqual(cert.issuer, criteria.issuer)) {
+        if (process.env.DEBUG_SIGSTORE) {
+          console.error(`Found matching certificate at index ${i}`);
+        }
+        return true;
+      }
+    }
+
+    return false;
   });
 }
 
@@ -116,37 +146,65 @@ async function verifyTimestampForCA(
     throw new Error("Certificate authority missing certificate chain");
   }
 
-  // Parse the leaf certificate (TSA signing certificate)
-  const leafCert = X509Certificate.parse(base64ToUint8Array(ca.certChain.certificates[0].rawBytes));
+  // Find the certificate that matches the timestamp's signer
+  let signingCert: X509Certificate | null = null;
+  let signingCertIndex = -1;
 
-  // Verify the certificate chain
-  await verifyCertificateChain(leafCert, ca, timestamp.signingTime);
+  for (let i = 0; i < ca.certChain.certificates.length; i++) {
+    const cert = X509Certificate.parse(base64ToUint8Array(ca.certChain.certificates[i].rawBytes));
 
-  // Get the public key from the leaf certificate
-  const publicKey = await leafCert.publicKeyObj;
+    if (bufferEqual(cert.serialNumber, timestamp.signerSerialNumber) &&
+        bufferEqual(cert.issuer, timestamp.signerIssuer)) {
+      signingCert = cert;
+      signingCertIndex = i;
+      break;
+    }
+  }
+
+  if (!signingCert) {
+    throw new Error("No certificate in chain matches timestamp signer");
+  }
+
+  // Verify the certificate chain starting from the signing certificate
+  await verifyCertificateChain(signingCert, ca, timestamp.signingTime, signingCertIndex);
+
+  // Get the public key from the signing certificate
+  const publicKey = await signingCert.publicKeyObj;
+
+  if (process.env.DEBUG_SIGSTORE) {
+    console.error(`Timestamp signing cert algorithm: ${publicKey.algorithm.name}`);
+  }
 
   // Verify the timestamp signature using the existing RFC3161 implementation
-  await timestamp.verify(data, publicKey);
+  try {
+    await timestamp.verify(data, publicKey);
+  } catch (e) {
+    if (process.env.DEBUG_SIGSTORE) {
+      console.error(`Timestamp verify failed: ${e}`);
+    }
+    throw e;
+  }
 }
 
 /**
  * Verifies a certificate chain for TSA certificates
  */
 async function verifyCertificateChain(
-  leafCert: X509Certificate,
+  signingCert: X509Certificate,
   ca: RawTimestampAuthority,
-  validAt: Date
+  validAt: Date,
+  startIndex: number
 ): Promise<void> {
-  // Check that the leaf certificate was valid at the signing time
-  if (!leafCert.validForDate(validAt)) {
+  // Check that the signing certificate was valid at the signing time
+  if (!signingCert.validForDate(validAt)) {
     throw new Error("TSA certificate not valid at timestamp signing time");
   }
 
-  // If there are intermediate/root certificates, verify the chain
-  if (ca.certChain && ca.certChain.certificates.length > 1) {
-    let currentCert = leafCert;
+  // If there are more certificates in the chain, verify up the chain
+  if (ca.certChain && startIndex + 1 < ca.certChain.certificates.length) {
+    let currentCert = signingCert;
 
-    for (let i = 1; i < ca.certChain.certificates.length; i++) {
+    for (let i = startIndex + 1; i < ca.certChain.certificates.length; i++) {
       const issuerCert = X509Certificate.parse(base64ToUint8Array(ca.certChain.certificates[i].rawBytes));
 
       // Check that the issuer cert was valid at the signing time
@@ -183,12 +241,23 @@ export async function verifyBundleTimestamp(
     return undefined;
   }
 
+  if (process.env.DEBUG_SIGSTORE) {
+    console.error(`Processing ${timestampData.rfc3161Timestamps.length} RFC3161 timestamps`);
+    console.error(`Timestamp authorities: ${timestampAuthorities.length}`);
+  }
+
   // Process each RFC3161 timestamp
+  const errors: string[] = [];
   for (const tsData of timestampData.rfc3161Timestamps) {
     try {
       // Decode the base64-encoded timestamp
       const timestampBytes = base64ToUint8Array(tsData.signedTimestamp);
       const timestamp = RFC3161Timestamp.parse(timestampBytes);
+
+      if (process.env.DEBUG_SIGSTORE) {
+        console.error(`Timestamp signing time: ${timestamp.signingTime}`);
+      }
+
       const signingTime = await verifyRFC3161Timestamp(
         timestamp,
         signature,
@@ -197,9 +266,13 @@ export async function verifyBundleTimestamp(
       return signingTime;
     } catch (e) {
       // Continue to next timestamp if this one fails
+      if (process.env.DEBUG_SIGSTORE) {
+        console.error(`Timestamp verification failed: ${e}`);
+      }
+      errors.push(e instanceof Error ? e.message : String(e));
       continue;
     }
   }
 
-  throw new Error("No valid RFC3161 timestamps found");
+  throw new Error(`No valid RFC3161 timestamps found. Errors: ${errors.join(', ')}`);
 }
