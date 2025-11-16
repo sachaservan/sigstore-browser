@@ -480,21 +480,7 @@ export class SigstoreVerifier {
       throw new Error("No certificate found in bundle");
     }
 
-    if (process.env.DEBUG_SIGSTORE) {
-      console.error(`Parsing certificate, rawBytes length: ${cert.rawBytes.length}, type: ${typeof cert.rawBytes}`);
-    }
-    let signingCert: X509Certificate;
-    try {
-      signingCert = X509Certificate.parse(base64ToUint8Array(cert.rawBytes));
-      if (process.env.DEBUG_SIGSTORE) {
-        console.error(`Certificate parsed successfully`);
-      }
-    } catch (e) {
-      if (process.env.DEBUG_SIGSTORE) {
-        console.error(`Failed to parse certificate: ${e}`);
-      }
-      throw e;
-    }
+    const signingCert = X509Certificate.parse(base64ToUint8Array(cert.rawBytes));
 
     // Handle both regular bundles (messageSignature) and DSSE bundles (dsseEnvelope)
     let signature: Uint8Array;

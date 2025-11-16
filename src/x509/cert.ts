@@ -96,10 +96,6 @@ export class X509Certificate {
     const spki = ASN1Obj.parseBuffer(publicKey);
     const algorithmOID = spki.subs[0].subs[0].toOID();
 
-    if (process.env.DEBUG_SIGSTORE) {
-      console.error(`X509 publicKeyObj - Algorithm OID: ${algorithmOID}`);
-    }
-
     // Check if it's an RSA key (OID 1.2.840.113549.1.1.1)
     if (algorithmOID === "1.2.840.113549.1.1.1") {
       // RSA key
@@ -107,20 +103,9 @@ export class X509Certificate {
     } else {
       // ECDSA key - the curve OID is in the second element
       const curveOID = spki.subs[0].subs[1]?.toOID();
-      if (process.env.DEBUG_SIGSTORE) {
-        console.error(`X509 publicKeyObj - Curve OID: ${curveOID}`);
-      }
       const curve = ECDSA_CURVE_NAMES[curveOID];
-      if (!curve) {
-        // If no curve found in ECDSA_CURVE_NAMES, try to determine from algorithm OID
-        // This might be a P-384 cert where the curve is specified differently
-        if (process.env.DEBUG_SIGSTORE) {
-          console.error(`Unknown curve OID: ${curveOID}, falling back to default`);
-        }
-      }
-      if (process.env.DEBUG_SIGSTORE) {
-        console.error(`X509 importing ECDSA key with curve: ${curve}`);
-      }
+      // If no curve found in ECDSA_CURVE_NAMES, fall back to P-384
+      // This might be a P-384 cert where the curve is specified differently
       return importKey(KeyTypes.Ecdsa, curve || "P-384", Uint8ArrayToBase64(publicKey));
     }
   }
