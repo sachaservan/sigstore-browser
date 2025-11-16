@@ -312,6 +312,19 @@ export class SigstoreVerifier {
 
     const entry = bundle.verificationMaterial.tlogEntries[0];
 
+    // Extract bundle version from mediaType
+    // e.g., "application/vnd.dev.sigstore.bundle+json;version=0.2"
+    const versionMatch = bundle.mediaType.match(/version=(\d+\.\d+)/);
+    const bundleVersion = versionMatch ? versionMatch[1] : "0.1";
+    const isV02OrLater = parseFloat(bundleVersion) >= 0.2;
+
+    // Bundle v0.2+ requires an inclusion proof
+    if (isV02OrLater && !entry.inclusionProof) {
+      throw new Error(
+        "Bundle v0.2+ requires an inclusion proof.",
+      );
+    }
+
     // For rekor2/v0.3 bundles with inclusion proofs, the inclusion promise is optional
     if (!entry.inclusionPromise?.signedEntryTimestamp) {
       // If there's no inclusion promise, there must be an inclusion proof
@@ -366,6 +379,13 @@ export class SigstoreVerifier {
       if (!cert.validForDate(integratedDate)) {
         throw new Error(
           "Artifact signing was logged outside of the certificate validity.",
+        );
+      }
+    } else {
+      // Rekor v2 bundles (no integratedTime) require a timestamp for verification
+      if (!bundle.verificationMaterial.timestampVerificationData) {
+        throw new Error(
+          "Rekor v2 bundles require a timestamp for verification.",
         );
       }
     }
