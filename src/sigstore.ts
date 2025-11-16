@@ -25,9 +25,6 @@ import {
 } from "./x509/index.js";
 import { verifyMerkleInclusion } from "./tlog/merkle.js";
 import { verifyCheckpoint } from "./tlog/checkpoint.js";
-import { verifyTLogBody } from "./tlog/body.js";
-import { verifyBundleTimestamp } from "./timestamp/tsa.js";
-import { TrustedRootProvider } from "./trust/tuf.js";
 
 export class SigstoreVerifier {
   private root: Sigstore | undefined;
@@ -184,20 +181,7 @@ export class SigstoreVerifier {
         frozenTimestamp,
         rawRoot[SigstoreRoots.certificateAuthorities],
       ),
-      tsa: await this.loadTSA(frozenTimestamp, rawRoot.timestampAuthorities),
     };
-  }
-
-  /**
-   * Load Sigstore trusted root via TUF
-   * Uses The Update Framework for secure, verified updates of trusted root metadata
-   *
-   * @param tufProvider Optional TrustedRootProvider instance. If not provided, uses default Sigstore TUF repository
-   */
-  async loadSigstoreRootWithTUF(tufProvider?: TrustedRootProvider): Promise<void> {
-    const provider = tufProvider || new TrustedRootProvider();
-    const trustedRoot = await provider.getTrustedRoot();
-    await this.loadSigstoreRoot(trustedRoot);
   }
 
   // Adapted from https://github.com/sigstore/sigstore-js/blob/main/packages/verify/src/key/sct.ts
@@ -550,31 +534,7 @@ export class SigstoreVerifier {
     // # 5 Rekor inclusion proof (Merkle tree verification)
     await this.verifyInclusionProof(bundle);
 
-    // # 5.1 Rekor body verification
-    if (bundle.verificationMaterial.tlogEntries.length > 0) {
-      await verifyTLogBody(
-        bundle.verificationMaterial.tlogEntries[0],
-        bundle
-      );
-    }
-
-    // # 6 TSA Timestamp Verification (if present)
-    let verifiedTimestamp: Date | undefined;
-    if (bundle.verificationMaterial.timestampVerificationData) {
-      // Verify TSA timestamps if present
-      verifiedTimestamp = await verifyBundleTimestamp(
-        bundle.verificationMaterial.timestampVerificationData,
-        signature,
-        this.rawRoot?.timestampAuthorities || []
-      );
-
-      // If we have a verified timestamp, check certificate validity at that time
-      if (verifiedTimestamp && !signingCert.validForDate(verifiedTimestamp)) {
-        throw new Error(
-          "Certificate was not valid at the time of timestamping"
-        );
-      }
-    }
+    // # 6 TSA *skipping*, not supported by sigstore community
 
     // # 7 Revocation *skipping* not really a thing (unsurprisingly)
 
