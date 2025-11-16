@@ -496,11 +496,18 @@ export class SigstoreVerifier {
       throw e;
     }
 
-    if (!bundle.messageSignature) {
-      throw new Error("No message signature found in bundle");
+    // Handle both regular bundles (messageSignature) and DSSE bundles (dsseEnvelope)
+    let signature: Uint8Array;
+    if (bundle.messageSignature) {
+      signature = base64ToUint8Array(bundle.messageSignature.signature);
+    } else if (bundle.dsseEnvelope) {
+      if (!bundle.dsseEnvelope.signatures || bundle.dsseEnvelope.signatures.length === 0) {
+        throw new Error("DSSE envelope has no signatures");
+      }
+      signature = base64ToUint8Array(bundle.dsseEnvelope.signatures[0].sig);
+    } else {
+      throw new Error("Bundle does not contain a message signature or DSSE envelope");
     }
-
-    const signature = base64ToUint8Array(bundle.messageSignature.signature);
 
     // # 1 Basic stuff
     if (signingCert.subjectAltName !== identity) {
@@ -579,15 +586,58 @@ export class SigstoreVerifier {
     // # 7 Revocation *skipping* not really a thing (unsurprisingly)
 
     // # 8 verify the signed data
-    // When only a digest is provided (for hashedrekord entries), we cannot verify the signature
-    // because the signature is over the original artifact data, not the digest.
-    // In this case, we skip signature verification - the digest match is sufficient.
-    if (!isDigestOnly) {
+    if (bundle.dsseEnvelope) {
+      // For DSSE bundles, verify the signature over the PAE
+      const payloadBytes = base64ToUint8Array(bundle.dsseEnvelope.payload);
+      const payload = JSON.parse(Uint8ArrayToString(payloadBytes));
+
+      // Verify the artifact digest matches the subject in the in-toto statement
+      if (!payload.subject || payload.subject.length === 0) {
+        throw new Error("DSSE payload has no subject");
+      }
+
+      const subjectDigest = payload.subject[0].digest?.["sha256"];
+      if (!subjectDigest) {
+        throw new Error("DSSE payload subject has no SHA256 digest");
+      }
+
+      // Compute the digest of the provided data
+      const artifactDigest = Uint8ArrayToHex(
+        new Uint8Array(await crypto.subtle.digest("SHA-256", toArrayBuffer(data)))
+      );
+
+      if (artifactDigest !== subjectDigest) {
+        throw new Error("Artifact digest does not match DSSE payload subject digest");
+      }
+
+      // Create PAE (Pre-Authentication Encoding) for signature verification
+      // PAE = "DSSEv1" + SP + LEN(type) + SP + type + SP + LEN(payload) + SP + payload (raw bytes)
+      const payloadType = bundle.dsseEnvelope.payloadType;
+      const prefix = `DSSEv1 ${payloadType.length} ${payloadType} ${payloadBytes.length} `;
+      const prefixBytes = stringToUint8Array(prefix);
+
+      // Concatenate prefix and payload bytes
+      const pae = new Uint8Array(prefixBytes.length + payloadBytes.length);
+      pae.set(prefixBytes, 0);
+      pae.set(payloadBytes, prefixBytes.length);
+
       const publicKey = await signingCert.publicKeyObj;
-      const verified = await verifySignature(publicKey, data, signature);
+      const verified = await verifySignature(publicKey, pae, signature);
       if (!verified) {
-        const keyAlg = publicKey.algorithm.name || 'unknown';
-        throw new Error(`Error verifying artifact signature. Key algorithm: ${keyAlg}, Data length: ${data.length}, Signature length: ${signature.length}, isDigestOnly: ${isDigestOnly}`);
+        throw new Error("DSSE signature verification failed");
+      }
+    } else {
+      // For regular bundles, verify the signature over the artifact data
+      // When only a digest is provided (for hashedrekord entries), we cannot verify the signature
+      // because the signature is over the original artifact data, not the digest.
+      // In this case, we skip signature verification - the digest match is sufficient.
+      if (!isDigestOnly) {
+        const publicKey = await signingCert.publicKeyObj;
+        const verified = await verifySignature(publicKey, data, signature);
+        if (!verified) {
+          const keyAlg = publicKey.algorithm.name || 'unknown';
+          throw new Error(`Error verifying artifact signature. Key algorithm: ${keyAlg}, Data length: ${data.length}, Signature length: ${signature.length}, isDigestOnly: ${isDigestOnly}`);
+        }
       }
     }
 
