@@ -46,7 +46,7 @@ interface HashedRekordV002Spec {
     };
     data: {
       algorithm: string;
-      digest: string;  // base64-encoded digest
+      digest: string;
     };
   };
 }
